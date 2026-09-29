@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  calidad:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el codigo
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar ruff
+        run: pip install ruff
+      - name: Verificar estilo del codigo
+        run: ruff check app/ tests/
+
+  construir:
+    runs-on: ubuntu-latest
+    needs: calidad
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir la imagen Docker
+        run: docker build -t api-ia:ci .
+
+  pruebas:
+    runs-on: ubuntu-latest
+    needs: calidad
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: iadb
+          POSTGRES_PASSWORD: claveCI
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-retries 5
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: iadb
+      DB_USER: postgres
+      DB_PASSWORD: claveCI
+      MOTOR_POR_DEFECTO: eco
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - run: psql -h localhost -U postgres -d iadb -f db/init.sql
+        env:
+          PGPASSWORD: claveCI
+      - run: pytest -v
